@@ -49,6 +49,11 @@ bool FileInfoFromRefNum(HANDLE volume, PUSN_RECORD usnRecord, FileInfo& outFileI
    return true;
 }
 
+bool stringview_startswith(char* str, char* startswith, int strlen)
+{
+
+}
+
 void example_main()
 {
    HANDLE hVol;
@@ -125,21 +130,27 @@ void example_main()
       // Find the first record
       UsnRecord = (PUSN_RECORD)(((PUCHAR)Buffer) + sizeof(USN));  
 
-      printf( "****************************************\n");
+      //printf( "****************************************\n");
 
       // This loop could go on for a long time, given the current buffer size.
       while( dwRetBytes > 0 )
       {
-         printf( "USN: %I64x\n", UsnRecord->Usn );
-         printf("File name: %.*S\n", 
-                  UsnRecord->FileNameLength/2, 
-                  UsnRecord->FileName );
-         printf( "Reason: %x\n", UsnRecord->Reason );
 
          FileInfo fileInfo = {};
          FileInfoFromRefNum(hVol, UsnRecord, fileInfo);
-         printf("File full path: %.*S\n", fileInfo.pathBuffer.size(), fileInfo.pathBuffer.data());
-         printf( "\n" );
+         //printf("File full path: %.*S\n", fileInfo.pathBuffer.size(), fileInfo.pathBuffer.data());
+
+         //if (fileInfo.pathBuffer._Starts_with(L"/C:/Dev/usn_change_journal_playground"))
+         if (UsnRecord->Reason & USN_REASON_FILE_CREATE)
+         {
+            printf( "USN: %I64x\n", UsnRecord->Usn );
+            printf("File name: %.*S\n", 
+                     UsnRecord->FileNameLength/2, 
+                     UsnRecord->FileName );
+            printf( "Reason: %x\n", UsnRecord->Reason );
+            printf("File full path: %.*S\n", fileInfo.pathBuffer.size(), fileInfo.pathBuffer.data());
+            printf( "\n" );
+         }
 
          dwRetBytes -= UsnRecord->RecordLength;
 
