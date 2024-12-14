@@ -3,6 +3,27 @@
         "*.type": "metadesk",
         "tupfile": "plaintext",
         "array": "cpp",
-        "xstring": "cpp"
+        "xstring": "cpp",
+        "cctype": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "cstddef": "cpp",
+        "cstdint": "cpp",
+        "cstdio": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp",
+        "cwchar": "cpp",
+        "exception": "cpp",
+        "initializer_list": "cpp",
+        "iosfwd": "cpp",
+        "limits": "cpp",
+        "new": "cpp",
+        "string": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "xmemory": "cpp",
+        "xtr1common": "cpp",
+        "xutility": "cpp"
     }
 }

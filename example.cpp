@@ -2,6 +2,7 @@
 #include <WinIoCtl.h>
 #include <stdio.h>
 #include <string_view>
+#include <string>
 #include "shared.h"
 #define BUF_LEN 4096
 
@@ -27,9 +28,9 @@ FILE_ID_DESCRIPTOR getFileIdDescriptor(const FILE_ID_128& fileId)
 
 struct FileInfo
 {
-   std::wstring_view pathBuffer = {};
+   std::string pathBuffer = {};
 };
-
+ 
 // currently only getting file path, could get more stuff, anything from _FILE_INFO_BY_HANDLE_CLASS (altho each info type would mean another kernel call)
 // https://stackoverflow.com/questions/31763195/how-to-get-the-full-path-for-usn-journal-query
 bool FileInfoFromRefNum(HANDLE volume, PUSN_RECORD usnRecord, FileInfo& outFileInfo)
@@ -45,13 +46,9 @@ bool FileInfoFromRefNum(HANDLE volume, PUSN_RECORD usnRecord, FileInfo& outFileI
       return false;
    }
    // this is without the volume name, so C: isn't present
-   outFileInfo.pathBuffer = { file_name_info->FileName, file_name_info->FileNameLength / 2 }; // dunno why, but the length seems to be 2x what it actually is
+   // dunno why, but the length seems to be 2x what it actually is. Doesnt matter if we're doing stdstring stuff tho since name is null-terminated
+   outFileInfo.pathBuffer.assign((char*)file_name_info->FileName, file_name_info->FileNameLength); 
    return true;
-}
-
-bool stringview_startswith(char* str, char* startswith, int strlen)
-{
-
 }
 
 void example_main()
@@ -71,16 +68,16 @@ void example_main()
 
    // C:\Dev\usn_change_journal_playground\testdir
    hVol = CreateFile( TEXT("\\\\.\\c:"), 
-               GENERIC_READ | GENERIC_WRITE, 
+               (DWORD)FILE_TRAVERSE, 
                FILE_SHARE_READ | FILE_SHARE_WRITE,
-               NULL,
+               nullptr,
                OPEN_EXISTING,
-               0,
-               NULL);
+               FILE_ATTRIBUTE_NORMAL,
+               nullptr);
 
    if( hVol == INVALID_HANDLE_VALUE )
    {
-      printf("CreateFile failed (%d)\n", GetLastError());
+      printf("CreateFile failed (%d) May be a permissions error. Try running as admin\n", GetLastError());
       return;
    }
 
@@ -113,7 +110,7 @@ void example_main()
       memset( Buffer, 0, BUF_LEN );
 
       if( !DeviceIoControl( hVol, 
-            FSCTL_READ_USN_JOURNAL, 
+            FSCTL_READ_UNPRIVILEGED_USN_JOURNAL, 
             &ReadData,
             sizeof(ReadData),
             &Buffer,
@@ -140,8 +137,18 @@ void example_main()
          FileInfoFromRefNum(hVol, UsnRecord, fileInfo);
          //printf("File full path: %.*S\n", fileInfo.pathBuffer.size(), fileInfo.pathBuffer.data());
 
-         //if (fileInfo.pathBuffer._Starts_with(L"/C:/Dev/usn_change_journal_playground"))
-         if (UsnRecord->Reason & USN_REASON_FILE_CREATE)
+         constexpr uint32_t cInterestingReasons = USN_REASON_FILE_CREATE |     // File was created.
+											   USN_REASON_FILE_DELETE |     // File was deleted.
+											   USN_REASON_DATA_OVERWRITE |  // File was modified.
+											   USN_REASON_DATA_EXTEND |     // File was modified.
+											   USN_REASON_DATA_TRUNCATION | // File was modified.
+											   USN_REASON_RENAME_NEW_NAME |  // File was renamed or moved (possibly to the recyle bin). That's essentially a delete and a create.
+                                    USN_REASON_CLOSE // file was closed
+                                    ;
+         // file was created and then removed super quick
+         bool createdAndDeletedQuickly = (UsnRecord->Reason & (USN_REASON_FILE_DELETE | USN_REASON_FILE_CREATE)) == (USN_REASON_FILE_DELETE | USN_REASON_FILE_CREATE);
+         //bool isInRelevantFolder = fileInfo.pathBuffer.find("\\usn_change_journal_playground") != std::string::npos;
+         if (UsnRecord->Reason & cInterestingReasons && !createdAndDeletedQuickly)
          {
             printf( "USN: %I64x\n", UsnRecord->Usn );
             printf("File name: %.*S\n", 
