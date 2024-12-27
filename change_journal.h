@@ -9,6 +9,7 @@ struct Journal
 {
     char drive;
     char* buffer;
+    void* handle;
     uint64_t bufferSize;
     // includes the size (bytes) of the full journal's internal OS buffer
     // the Oldest and Latest USN, and the ID

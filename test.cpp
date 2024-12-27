@@ -16,8 +16,8 @@ int main()
    {
       printf("err\n");
    }
-   printf("Journal size: %llu", journal.journalData.MaximumSize);
-   printf("USN Range: [%lld, %lld]", journal.journalData.FirstUsn, journal.journalData.NextUsn); 
+   printf("Journal size: %llu\n", journal.journalData.MaximumSize);
+   printf("USN Range: [%lld, %lld]\n", journal.journalData.FirstUsn, journal.journalData.NextUsn); 
 
    // 1: read in manually, iterate manually
    constexpr size_t bufferSize = KILOBYTES_BYTES(50);
@@ -26,21 +26,21 @@ int main()
    USN nextUsn = ReadJournal(journal, buffer, bufferSize, 0, &bytesRead);
    // buffer contains USN of last entry it read, then all the actual records
    PUSN_RECORD UsnRecords = (PUSN_RECORD)(buffer + sizeof(USN));
-   size_t remainingBytesInBuffer = 0;
    // number of bytes remaining in the buffer of the collected USN_RECORDs
-   remainingBytesInBuffer = bytesRead - sizeof(USN);
+   size_t remainingBytesInBuffer = bytesRead - sizeof(USN);
 
    // Find the first record
-   PUSN_RECORD UsnRecord = (PUSN_RECORD)(((PUCHAR)journal.buffer) + sizeof(USN));  
+   PUSN_RECORD UsnRecord = (PUSN_RECORD)(((PUCHAR)buffer) + sizeof(USN));  
 
    // This loop could go on for a while, depending on the current buffer size.
    while(remainingBytesInBuffer > 0)
    {
       constexpr size_t pathBufferSize = 200;
       wchar_t pathBuffer[pathBufferSize] = {0};
-      if (GetPathFromRecord((HANDLE)journal.journalData.UsnJournalID, UsnRecord, pathBuffer, pathBufferSize))
+      if (GetPathFromRecord(journal.handle, UsnRecord, pathBuffer, pathBufferSize))
       {
-         PrintTimestamp(UsnRecord->TimeStamp, "USN Record timestamp: ");
+         printf("USN Record: %c:%ls\n", journal.drive, pathBuffer);
+         PrintTimestamp(UsnRecord->TimeStamp, "\t\tRecord timestamp: ");
       }
       remainingBytesInBuffer -= UsnRecord->RecordLength;
       // Find the next record
@@ -48,11 +48,12 @@ int main()
                UsnRecord->RecordLength); 
    }
 
-   
+   // 2. Read in automatically, using a callback to process each usn record
+   /*
    if (!ReadJournal(journal, 10, [](const Journal& journal, PUSN_RECORD UsnRecord){
       constexpr size_t pathBufferSize = 200;
       wchar_t pathBuffer[pathBufferSize] = {0};
-      if (GetPathFromRecord((HANDLE)journal.journalData.UsnJournalID, UsnRecord, pathBuffer, pathBufferSize))
+      if (GetPathFromRecord(journal.handle, UsnRecord, pathBuffer, pathBufferSize))
       {
          PrintTimestamp(UsnRecord->TimeStamp, "USN Record timestamp: ");
       }
@@ -60,6 +61,7 @@ int main()
    {
       printf("Did not fully complete ReadJournal\n");
    }
+   */
 
    DeinitializeJournal(journal);
    return 0;

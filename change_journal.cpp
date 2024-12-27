@@ -130,24 +130,27 @@ bool InitializeJournal(char drive, uint64_t bufferSize, Journal& journal)
 {
     journal.buffer = new char[bufferSize];
     journal.bufferSize = bufferSize;
+    journal.drive = drive;
 
-    char* drivePath = "\\\\.\\c:";
-    drivePath[5] = drive;
-    HANDLE volume = CreateFile((LPCSTR)drivePath, 
+    constexpr const char* DRIVE_PATH_TEMPLATE = "\\\\.\\c:";
+    char drivePath[sizeof(DRIVE_PATH_TEMPLATE)];
+    memcpy(drivePath, DRIVE_PATH_TEMPLATE, sizeof(DRIVE_PATH_TEMPLATE));
+    drivePath[4] = drive;
+    journal.handle = CreateFile((LPCSTR)drivePath, 
                 (DWORD)FILE_TRAVERSE, // required to work without admin perms
                 FILE_SHARE_READ | FILE_SHARE_WRITE,
                 nullptr,
                 OPEN_EXISTING,
                 FILE_ATTRIBUTE_NORMAL,
                 nullptr);
-    if (volume == INVALID_HANDLE_VALUE)
+    if (journal.handle == INVALID_HANDLE_VALUE)
     {
         // TOOD: proper error enum
         return false;
     }
 
     DWORD bytesRead;
-    if( !DeviceIoControl( volume, 
+    if(!DeviceIoControl(journal.handle, 
             FSCTL_QUERY_USN_JOURNAL, 
             NULL,
             0,
@@ -163,7 +166,7 @@ bool InitializeJournal(char drive, uint64_t bufferSize, Journal& journal)
 
 bool DeinitializeJournal(const Journal& journal)
 {
-    CloseHandle((HANDLE)journal.journalData.UsnJournalID);
+    CloseHandle(journal.handle);
     delete(journal.buffer);
 }
 
@@ -186,11 +189,11 @@ USN ReadJournal(const Journal& journal, void* buffer, size_t bufferSize, uint64_
 {
     READ_USN_JOURNAL_DATA_V0 ReadData = {0};
     ReadData.ReasonMask = ~0;
-    ReadData.StartUsn = startingUSN;
+    ReadData.StartUsn = startingUSN ? startingUSN : journal.journalData.FirstUsn;
     ReadData.UsnJournalID = journal.journalData.UsnJournalID;
-    PUSN_RECORD UsnRecord;  
+    //PUSN_RECORD UsnRecord;
     uint64_t unusedBytesRead;
-    bool bStatus = DeviceIoControl((HANDLE)journal.journalData.UsnJournalID, 
+    bool bStatus = DeviceIoControl(journal.handle, 
             FSCTL_READ_UNPRIVILEGED_USN_JOURNAL, 
             &ReadData,
             sizeof(ReadData),
@@ -208,8 +211,8 @@ USN ReadJournal(const Journal& journal, void* buffer, size_t bufferSize, uint64_
         printf( "Read journal failed (%d)\n", GetLastError());
         return 1;
     }
-    UsnRecord = (PUSN_RECORD)(((PUCHAR)buffer) + sizeof(USN));  
-    USN usn = *(USN *)journal.buffer; 
+    //UsnRecord = (PUSN_RECORD)(((PUCHAR)buffer) + sizeof(USN));  
+    USN usn = *(USN *)buffer; 
     return usn;
 }
 
@@ -220,7 +223,7 @@ bool ReadJournal(const Journal& journal, uint32_t numReadAttempts, UsnRecordCall
     READ_USN_JOURNAL_DATA_V0 ReadData = {0};
     ReadData.ReasonMask = ~0;
     ReadData.StartUsn = startingUSN;
-    ReadData.UsnJournalID = journal.journalData.UsnJournalID;
+    ReadData.StartUsn = startingUSN ? startingUSN : journal.journalData.FirstUsn;
     PUSN_RECORD UsnRecord;  
     DWORD bytesRead = 0;
     DWORD remainingBufferBytes = 0;
@@ -229,7 +232,7 @@ bool ReadJournal(const Journal& journal, uint32_t numReadAttempts, UsnRecordCall
     {
         memset(journal.buffer, 0, journal.bufferSize);
 
-        bool bStatus = DeviceIoControl((HANDLE)journal.journalData.UsnJournalID, 
+        bool bStatus = DeviceIoControl(journal.handle, 
             FSCTL_READ_UNPRIVILEGED_USN_JOURNAL, 
             &ReadData,
             sizeof(ReadData),
