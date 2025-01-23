@@ -101,10 +101,10 @@ FILE_ID_DESCRIPTOR getFileIdDescriptor(const FILE_ID_128& fileId)
 
 // currently only getting file path, could get more stuff, anything from _FILE_INFO_BY_HANDLE_CLASS (altho each info type would mean another kernel call)
 // https://stackoverflow.com/questions/31763195/how-to-get-the-full-path-for-usn-journal-query
-bool GetPathFromRecord(HANDLE volume, PUSN_RECORD usnRecord, wchar_t* pathBuffer, size_t pathBufferSize)
+bool GetPathFromRecord(const Journal& journal, PUSN_RECORD usnRecord, wchar_t* pathBuffer, size_t pathBufferSize)
 {
     FILE_ID_DESCRIPTOR fileDesc = getFileIdDescriptor(usnRecord->FileReferenceNumber);
-    HANDLE file = OpenFileById(volume, &fileDesc, 0, 0, 0, 0);
+    HANDLE file = OpenFileById(journal.handle, &fileDesc, 0, 0, 0, 0);
     // Get the full path as utf16.
     // PFILE_NAME_INFO contains the filename without the drive letter and column in front (ie. without the C:).
     PathBufferUTF16 wpath_buffer;
@@ -120,19 +120,22 @@ bool GetPathFromRecord(HANDLE volume, PUSN_RECORD usnRecord, wchar_t* pathBuffer
         //printf("we've got a problem");
         return false;
     }
-    _ASSERT(file_name_info->FileNameLength < pathBufferSize);
-    memcpy(pathBuffer, file_name_info->FileName, file_name_info->FileNameLength);
+    _ASSERT(file_name_info->FileNameLength < pathBufferSize+2);
+    mbstowcs(&pathBuffer[0], &journal.drive, 1); // Copy drive name
+    memcpy(&pathBuffer[1], L":", sizeof(pathBuffer[1])); // copy drive identifier
+    memcpy(pathBuffer+2, file_name_info->FileName, file_name_info->FileNameLength);
     return true;
 }
 
 
-bool InitializeJournal(char drive, uint64_t bufferSize, Journal& journal)
+bool InitializeJournal(char drive, Journal& journal)
 {
-    journal.buffer = new char[bufferSize];
-    journal.bufferSize = bufferSize;
+    drive = toupper(drive);
+    //journal.buffer = new char[bufferSize];
+    //journal.bufferSize = bufferSize;
     journal.drive = drive;
 
-    constexpr const char* DRIVE_PATH_TEMPLATE = "\\\\.\\c:";
+    constexpr const char* DRIVE_PATH_TEMPLATE = "\\\\.\\C:";
     char drivePath[sizeof(DRIVE_PATH_TEMPLATE)];
     memcpy(drivePath, DRIVE_PATH_TEMPLATE, sizeof(DRIVE_PATH_TEMPLATE));
     drivePath[4] = drive;
@@ -167,7 +170,7 @@ bool InitializeJournal(char drive, uint64_t bufferSize, Journal& journal)
 bool DeinitializeJournal(const Journal& journal)
 {
     CloseHandle(journal.handle);
-    delete(journal.buffer);
+    //delete(journal.buffer);
 }
 
 bool IsInterestingEntry(PUSN_RECORD UsnRecord)
@@ -208,7 +211,7 @@ USN ReadJournal(const Journal& journal, void* buffer, size_t bufferSize, uint64_
         {
             printf("Reached end of journal!\n");
         }
-        printf( "Read journal failed (%d)\n", GetLastError());
+        printf( "Read journal (manual) failed (%d)\n", GetLastError());
         return 1;
     }
     //UsnRecord = (PUSN_RECORD)(((PUCHAR)buffer) + sizeof(USN));  
@@ -216,7 +219,14 @@ USN ReadJournal(const Journal& journal, void* buffer, size_t bufferSize, uint64_
     return usn;
 }
 
-bool ReadJournal(const Journal& journal, uint32_t numReadAttempts, UsnRecordCallback cb, uint64_t startingUSN)
+bool ReadJournal(
+    const Journal& journal, 
+    void* buffer,
+    size_t bufferSize,
+    uint32_t numReadAttempts, 
+    UsnRecordCallback cb, 
+    void* userData,
+    uint64_t startingUSN)
 {
     // https://stackoverflow.com/questions/46978678/walking-the-ntfs-change-journal-on-windows-10
     // _V0 is the old version, but using _V1, which is supposed to be for win 10, seems to garble the data
@@ -224,20 +234,21 @@ bool ReadJournal(const Journal& journal, uint32_t numReadAttempts, UsnRecordCall
     ReadData.ReasonMask = ~0;
     ReadData.StartUsn = startingUSN;
     ReadData.StartUsn = startingUSN ? startingUSN : journal.journalData.FirstUsn;
+    ReadData.UsnJournalID = journal.journalData.UsnJournalID;
     PUSN_RECORD UsnRecord;  
     DWORD bytesRead = 0;
     DWORD remainingBufferBytes = 0;
     int i = 0;
     for(; i < numReadAttempts; i++)
     {
-        memset(journal.buffer, 0, journal.bufferSize);
+        memset(buffer, 0, bufferSize);
 
         bool bStatus = DeviceIoControl(journal.handle, 
             FSCTL_READ_UNPRIVILEGED_USN_JOURNAL, 
             &ReadData,
             sizeof(ReadData),
-            journal.buffer,
-            journal.bufferSize,
+            buffer,
+            bufferSize,
             &bytesRead,
             NULL);
         if (!bStatus) 
@@ -248,27 +259,27 @@ bool ReadJournal(const Journal& journal, uint32_t numReadAttempts, UsnRecordCall
                 printf("Reached end of journal!\n");
                 break;
             }
-            printf( "Read journal failed (%d)\n", GetLastError());
+            printf( "Read journal (callback) failed (%d)\n", GetLastError());
             return true;
         }
 
         remainingBufferBytes = bytesRead - sizeof(USN);
 
         // Find the first record
-        UsnRecord = (PUSN_RECORD)(((PUCHAR)journal.buffer) + sizeof(USN));  
+        UsnRecord = (PUSN_RECORD)(((PUCHAR)buffer) + sizeof(USN));  
 
         // This loop could go on for a while, depending on the current buffer size.
         while(remainingBufferBytes > 0)
         {
             //liMinDate.QuadPart = min(liMinDate.QuadPart, UsnRecord->TimeStamp.QuadPart);
-            cb(journal, UsnRecord);
+            cb(journal, UsnRecord, userData);
             remainingBufferBytes -= UsnRecord->RecordLength;
             // Find the next record
             UsnRecord = (PUSN_RECORD)(((PCHAR)UsnRecord) + 
                     UsnRecord->RecordLength); 
         }
         // Update starting USN for next call
-        ReadData.StartUsn = *(USN *)journal.buffer; 
+        ReadData.StartUsn = *(USN *)buffer; 
     }
 
     if (i == numReadAttempts)

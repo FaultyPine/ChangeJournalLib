@@ -12,6 +12,11 @@ USN (update sequence number) of the change. The USN is incremented for every fil
 # Usage
 Include change_journal.h and compile change_journal.cpp with your build system.
 
+# Building
+
+make sure clang is in your env PATH variable, then run build.bat.
+Clang download: https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.0/clang+llvm-19.1.0-x86_64-pc-windows-msvc.tar.xz
+
 # Example Usage:
 See test.cpp
 
