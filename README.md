@@ -28,4 +28,4 @@ https://github.com/dfs-minded/indexer-plus-plus/blob/master/NTFSReader/NTFSChang
 https://github.com/osquery/osquery/blob/master/osquery/events/windows/usn_journal_reader.h
 
 Note: using FILE_TRAVERSE, and FSCTL_READ_UNPRIVILEGED_USN_JOURNAL are required to get this working without
-admin perms. This behavior is completely undocumented on msdn... v
+admin perms. This behavior is completely undocumented...
