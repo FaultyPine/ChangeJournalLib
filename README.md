@@ -1,6 +1,6 @@
-# Change Journals
+# USN Journals
 
-The purpose of a change journal is to speed up operations that might conventionally be implemented with a recursive loop over all files in a directory
+The purpose of a USN journal (also called change journal) is to speed up operations that might conventionally be implemented with a recursive loop over all files in a directory
 comparing timestamps and potentially content hashes to determine which files have changed.
 A change journal stores filesystem events at the moment of the file being accessed, effectively removing the need to scan for changes like before.
 
